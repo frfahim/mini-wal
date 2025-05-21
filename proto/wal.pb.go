@@ -4,7 +4,7 @@
 // 	protoc        v5.29.3
 // source: wal.proto
 
-package wal_pb
+package proto
 
 import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
@@ -85,11 +85,11 @@ var File_wal_proto protoreflect.FileDescriptor
 
 const file_wal_proto_rawDesc = "" +
 	"\n" +
-	"\twal.proto\x12\x06wal_pb\"V\n" +
+	"\twal.proto\x12\x05proto\"V\n" +
 	"\bWAL_DATA\x12\x1a\n" +
 	"\blogSeqNo\x18\x01 \x01(\x04R\blogSeqNo\x12\x12\n" +
 	"\x04data\x18\x02 \x01(\fR\x04data\x12\x1a\n" +
-	"\bchecksum\x18\x03 \x01(\rR\bchecksumB%Z#github.com/frfahim/wal/proto/wal_pbb\x06proto3"
+	"\bchecksum\x18\x03 \x01(\rR\bchecksumB\vZ\twal/protob\x06proto3"
 
 var (
 	file_wal_proto_rawDescOnce sync.Once
@@ -105,7 +105,7 @@ func file_wal_proto_rawDescGZIP() []byte {
 
 var file_wal_proto_msgTypes = make([]protoimpl.MessageInfo, 1)
 var file_wal_proto_goTypes = []any{
-	(*WAL_DATA)(nil), // 0: wal_pb.WAL_DATA
+	(*WAL_DATA)(nil), // 0: proto.WAL_DATA
 }
 var file_wal_proto_depIdxs = []int32{
 	0, // [0:0] is the sub-list for method output_type

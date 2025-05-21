@@ -1,9 +1,10 @@
-package wal_proto
+package proto
 
 import (
 	"log"
 
-	"github.com/frfahim/wal/proto/wal_pb"
+	"wal/proto/wal_pb"
+
 	"google.golang.org/protobuf/proto"
 )
 

@@ -34,3 +34,7 @@ Thumbs.db
 
 # Project specific
 /tmp/
+
+# Bazel
+bazel-*
+MODULE.bazel.lock

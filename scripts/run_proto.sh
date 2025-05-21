@@ -3,7 +3,7 @@ set -e
 
 PROTO_DIR="$(dirname "$0")/../proto"
 # Ensure the output directory exists, we can automate the pb directory based on the proto file
-OUT_DIR="$PROTO_DIR/wal_pb"
+OUT_DIR="$PROTO_DIR"
 PROTO_FILE="$PROTO_DIR/wal.proto"
 
 # Check for protoc installation

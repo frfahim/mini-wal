@@ -13,8 +13,9 @@ import (
 	"sync"
 	"time"
 
-	wal_proto "wal/proto"
-	"wal/proto/wal_pb"
+	wal_pb "wal/proto"
+
+	"google.golang.org/protobuf/proto"
 )
 
 const segmentPrefix = "segment-"
@@ -74,7 +75,10 @@ func (wal *WriteAheadLog) Write(data []byte) error {
 		Data:     data,
 		Checksum: crc32.ChecksumIEEE(append(data, byte(wal.lastSequenceNo))),
 	}
-	bytesWalData := wal_proto.MarshalData(walData)
+	bytesWalData, err := proto.Marshal(walData)
+	if err != nil {
+		return err
+	}
 	size := uint32(len(bytesWalData))
 	if err := binary.Write(wal.bufWriter, binary.LittleEndian, size); err != nil {
 		return err

@@ -1,8 +1,8 @@
 syntax = "proto3";
 
-package wal_pb;
+package proto;
 
-option go_package = "github.com/frfahim/wal/proto/wal_pb";
+option go_package = "wal/proto";
 
 message WAL_DATA {
   uint64 logSeqNo = 1;
