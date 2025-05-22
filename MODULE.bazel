@@ -19,10 +19,5 @@ bazel_dep(name = "gazelle", version = "0.43.0")
 
 go_deps = use_extension("@gazelle//:extensions.bzl", "go_deps")
 
-# go_deps.module(
-#     path = "google.golang.org/protobuf",
-#     version = "v1.36.3",
-# )
-
 go_deps.from_file(go_mod = "//:go.mod")
 use_repo(go_deps, "org_golang_google_protobuf")
