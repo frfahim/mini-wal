@@ -1,16 +1,13 @@
 package wal
 
 import (
-	"bufio"
+	"context"
 	"encoding/binary"
 	"fmt"
 	"hash/crc32"
 	"io"
+	"log"
 	"os"
-	"path/filepath"
-	"sort"
-	"strconv"
-	"strings"
 	"time"
 
 	wal_pb "wal/proto"
@@ -18,25 +15,35 @@ import (
 	pb "google.golang.org/protobuf/proto"
 )
 
-const segmentPrefix = "segment-"
-
 // WALConfig holds the configuration for the Write Ahead Log
 // This method opens the WAL file for writing and returns a pointer to the WriteAheadLog struct
-func Open(config *WALConfig) (*WriteAheadLog, error) {
+func Open(config *Options) (*WriteAheadLog, error) {
+	// config is optional, it will get the default if not provided
+	if config == nil {
+		config = DefaultConfig()
+	}
 	fileNamePrefix := config.LogDir + segmentPrefix
+	ctx, cancel := context.WithCancel(context.Background())
 	wal := &WriteAheadLog{
 		logFileNamePrefix: fileNamePrefix,
-		lastSequenceNo:    1,
+		lastSeqNo:         0,
 		maxLogFileSize:    config.MaxLogFileSize,
 		maxSegmentSize:    config.MaxSegmentSize,
 		currentSegmentNo:  1,
-		syncDelay:         time.NewTicker(config.SyncDelay),
+		syncDelay:         time.NewTicker(config.SyncInterval),
+		syncInterval:      config.SyncInterval,
+		ctx:               ctx,
+		cancel:            cancel,
 	}
 
-	err := wal.OpenExistingOrCreateSegment(config.LogDir)
+	err := wal.openExistingOrCreateSegment(config.LogDir)
 	if err != nil {
 		return nil, err
 	}
+	if wal.lastSeqNo, err = wal.getLastSeqNo(); err != nil {
+		return nil, fmt.Errorf("failed to get last sequence number: %w", err)
+	}
+	go wal.keepSyncing()
 
 	return wal, nil
 }
@@ -46,17 +53,42 @@ func Open(config *WALConfig) (*WriteAheadLog, error) {
 func (wal *WriteAheadLog) Write(data []byte) error {
 	wal.locker.Lock()
 	defer wal.locker.Unlock()
-	wal.lastSequenceNo++
+
+	wal.lastSeqNo++
 	walData := &wal_pb.WAL_DATA{
-		LogSeqNo: wal.lastSequenceNo,
+		LogSeqNo: wal.lastSeqNo,
 		Data:     data,
-		Checksum: crc32.ChecksumIEEE(append(data, byte(wal.lastSequenceNo))),
+		Checksum: crc32.ChecksumIEEE(append(data, byte(wal.lastSeqNo))),
 	}
+	return wal.WriteIntoBuffer(walData)
+}
+
+func (wal *WriteAheadLog) WriteWithCheckpoint(data []byte) error {
+	wal.locker.Lock()
+	defer wal.locker.Unlock()
+
+	wal.lastSeqNo++
+	isCheckpoint := true
+	walData := &wal_pb.WAL_DATA{
+		LogSeqNo:     wal.lastSeqNo,
+		Data:         data,
+		Checksum:     crc32.ChecksumIEEE(append(data, byte(wal.lastSeqNo))),
+		IsCheckpoint: &isCheckpoint,
+	}
+	return wal.WriteIntoBuffer(walData)
+}
+
+// WriteIntoBuffer writes the WAL_DATA into the buffer writer
+// It marshals the WAL_DATA to bytes, writes the size of the data first, then
+func (wal *WriteAheadLog) WriteIntoBuffer(walData *wal_pb.WAL_DATA) error {
 	bytesWalData, err := pb.Marshal(walData)
 	if err != nil {
 		return err
 	}
+	// protobuf data length is written as 4 bytes in little-endian format 32 bits = 4 * 8 bits
 	size := uint32(len(bytesWalData))
+	// Protobuf messages are variable lenght encoding and have no built-in separator
+	// So we write the size of the message first, then the message itself. means next N bytes are the data
 	if err := binary.Write(wal.bufWriter, binary.LittleEndian, size); err != nil {
 		return err
 	}
@@ -66,102 +98,86 @@ func (wal *WriteAheadLog) Write(data []byte) error {
 	return nil
 }
 
-func (wal *WriteAheadLog) Close() error {
-	wal.locker.Lock()
-	defer wal.locker.Unlock()
-
-	if err := wal.Sync(); err != nil {
-		return err
+func (wal *WriteAheadLog) ReadAll() ([]*wal_pb.WAL_DATA, error) {
+	walFile, err := os.Open(wal.file.Name())
+	if err != nil {
+		return nil, err
 	}
-	return wal.file.Close()
+	defer walFile.Close()
+
+	entries := []*wal_pb.WAL_DATA{}
+
+	for {
+		var size uint32
+		if err := binary.Read(walFile, binary.LittleEndian, &size); err != nil {
+			if err == io.EOF {
+				break
+			}
+			return nil, err
+		}
+		data := make([]byte, size)
+		fmt.Println(size)
+		_, err := walFile.Read(data)
+		// fmt.Println(n1)
+		// n, err := io.ReadFull(walFile, data)
+		// fmt.Println(n)
+		if err != nil {
+			return nil, err
+		}
+		entry := &wal_pb.WAL_DATA{}
+		if err := pb.Unmarshal(data, entry); err != nil {
+			return nil, err
+		}
+		if crc32.ChecksumIEEE(entry.GetData()) != entry.GetChecksum() {
+			return nil, fmt.Errorf("CRC mismatch for entry with seq no %d", entry.GetLogSeqNo())
+		}
+		fmt.Println(entry)
+		entries = append(entries, entry)
+	}
+	return entries, nil
 }
 
 func (wal *WriteAheadLog) Sync() error {
 	if err := wal.bufWriter.Flush(); err != nil {
 		return err
 	}
-	return wal.file.Sync()
-
+	if err := wal.file.Sync(); err != nil {
+		return fmt.Errorf("failed to sync WAL file: %w", err)
+	}
+	return nil
 }
 
-// Check if the directory is empty
-func checkEmptyDir(dirPath string) (bool, error) {
-	entries, err := os.ReadDir(dirPath)
-	if err != nil {
-		return false, err
-	}
-	return len(entries) == 0, nil
-}
-
-// OpenExistingOrCreateSegment checks if the directory is empty
-// If it is empty, it creates a new segment file
-// If it is not empty, it opens the last segment file for writing
-func (wal *WriteAheadLog) OpenExistingOrCreateSegment(dirPath string) error {
-	if err := os.MkdirAll(dirPath, 0755); err != nil {
-		return err
-	}
-	isEmptyDir, err := checkEmptyDir(dirPath)
-	if err != nil {
-		return err
-	}
-	if isEmptyDir {
-		// Create a new segment if the directory is empty
-		err := wal.createNewSegment()
-		if err != nil {
-			return err
-		}
-	} else {
-		// Open the existing segment
-		err := wal.openExistingSegment()
-		if err != nil {
-			return err
+func (wal *WriteAheadLog) keepSyncing() {
+	for {
+		select {
+		case <-wal.ctx.Done():
+			return
+		case <-wal.syncDelay.C:
+			wal.locker.Lock()
+			err := wal.Sync()
+			wal.locker.Unlock()
+			if err != nil {
+				// Log the error
+				log.Printf("failed to sync WAL: %v", err)
+			}
 		}
 	}
-	return nil
 }
 
-// Create a file with the prefix and segment no
-// It creates a new segment file with the name "segment-<segmentID>"
-func (wal *WriteAheadLog) createNewSegment() error {
-	fileName := wal.logFileNamePrefix + strconv.Itoa(wal.currentSegmentNo)
-	file, err := os.OpenFile(fileName, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
-	if err != nil {
-		return err
-	}
-	wal.file = file
-	wal.bufWriter = bufio.NewWriter(file)
-	return nil
+func (wal *WriteAheadLog) resetTimer() {
+	// Stop the ticker to reset the sync delay
+	wal.syncDelay.Stop()
+	// Reset the ticker to the sync interval
+	wal.syncDelay.Reset(wal.syncInterval)
 }
 
-// Open the last segment file for writing
-// It assumes that the segment files are named in the format "segment-<segmentID>"
-// and by sorting the files, it can find the last segment file
-// It opens the last segment file for writing and sets the currentSegmentNo to the last segment ID
-// It also seeks to the end of the file to append new data
-func (wal *WriteAheadLog) openExistingSegment() error {
-	// Get the list of log files in the directory, using the prefix
-	logFiles, err := filepath.Glob(wal.logFileNamePrefix + "*")
-	if err != nil {
+func (wal *WriteAheadLog) Close() error {
+	// Cancel the context to stop any ongoing operations
+	wal.cancel()
+
+	if err := wal.Sync(); err != nil {
 		return err
 	}
-	sort.Strings(logFiles)
-	lastFileName := logFiles[len(logFiles)-1]
-	// Open the last segment file for writing
-	file, err := os.OpenFile(lastFileName, os.O_WRONLY|os.O_APPEND, 0644)
-	if err != nil {
-		return err
-	}
-	// Extract the segment ID from the file name
-	s := strings.Split(lastFileName, "-")
-	fmt.Println(s)
-	lastSegmentNo, err := strconv.Atoi(s[2])
-	if err != nil {
-		return err
-	}
-	// Go to the end of the file
-	file.Seek(0, io.SeekEnd)
-	wal.file = file
-	wal.bufWriter = bufio.NewWriter(file)
-	wal.currentSegmentNo = lastSegmentNo
-	return nil
+	wal.resetTimer()
+	return wal.file.Close()
 }

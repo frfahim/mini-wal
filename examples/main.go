@@ -3,8 +3,6 @@ package main
 import (
 	"fmt"
 	"log"
-	"os"
-	"time"
 
 	wal "wal/internal"
 )
@@ -12,18 +10,13 @@ import (
 func main() {
 	// Create test directory
 	testDir := "/Users/fahim/work/mini-wal/examples_data/"
-	os.MkdirAll(testDir, 0755)
+	// os.MkdirAll(testDir, 0755)
 
-	// Initialize WAL configuration
-	config := &wal.WALConfig{
-		LogDir:         testDir,
-		MaxLogFileSize: 1024 * 1024, // 1MB
-		MaxSegmentSize: 64 * 1024,   // 64KB
-		SyncDelay:      time.Second * 5,
-	}
+	configs := wal.DefaultConfig()
+	configs.LogDir = testDir
 
 	// Open the WAL
-	openedWal, err := wal.Open(config)
+	openedWal, err := wal.Open(configs)
 	if err != nil {
 		log.Fatalf("Failed to open WAL: %v", err)
 	}
@@ -45,17 +38,8 @@ func main() {
 	}
 	openedWal.Close()
 
-	// Verify the files were created
-	files, err := os.ReadDir(testDir)
-	if err != nil {
-		log.Fatalf("Failed to read directory: %v", err)
-	}
-
-	fmt.Printf("\nFiles created in %s:\n", testDir)
-	for _, file := range files {
-		info, _ := file.Info()
-		fmt.Printf("- %s (size: %d bytes)\n", file.Name(), info.Size())
-	}
+	// Read content of a file
+	openedWal.ReadAll()
 
 	// You could add more verification here, like reading back the data
 
