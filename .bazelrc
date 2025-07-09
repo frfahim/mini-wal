@@ -1,0 +1,3 @@
+build --copt="-isysroot/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk"
+build --linkopt="-isysroot/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk"
+build --macos_minimum_os=11.0

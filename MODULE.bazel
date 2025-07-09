@@ -1,4 +1,7 @@
-module(name="mini_wal")
+module(
+    name="mini_wal",
+    version="0.1.0",
+)
 
 bazel_dep(
     name = "rules_go",
