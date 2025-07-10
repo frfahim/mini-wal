@@ -15,13 +15,35 @@ import (
 	pb "google.golang.org/protobuf/proto"
 )
 
+func prepareConfig(userConfig *Options) *Options {
+	config := DefaultConfig()
+
+	// Override default values with user-provided values
+	if userConfig != nil {
+		if userConfig.LogDir != "" {
+			config.LogDir = userConfig.LogDir
+		}
+		if userConfig.MaxLogFileSize != 0 {
+			config.MaxLogFileSize = userConfig.MaxLogFileSize
+		}
+		if userConfig.MaxSegmentSize != 0 {
+			config.MaxSegmentSize = userConfig.MaxSegmentSize
+		}
+		if userConfig.SyncInterval != 0 {
+			config.SyncInterval = userConfig.SyncInterval
+		}
+		if userConfig.EnableSync != config.EnableSync {
+			config.EnableSync = userConfig.EnableSync
+		}
+	}
+	return config
+}
+
 // WALConfig holds the configuration for the Write Ahead Log
 // This method opens the WAL file for writing and returns a pointer to the WriteAheadLog struct
 func Open(config *Options) (*WriteAheadLog, error) {
 	// config is optional, it will get the default if not provided
-	if config == nil {
-		config = DefaultConfig()
-	}
+	config = prepareConfig(config)
 	fileNamePrefix := config.LogDir + segmentPrefix
 	ctx, cancel := context.WithCancel(context.Background())
 	wal := &WriteAheadLog{
@@ -53,6 +75,10 @@ func Open(config *Options) (*WriteAheadLog, error) {
 func (wal *WriteAheadLog) Write(data []byte) error {
 	wal.locker.Lock()
 	defer wal.locker.Unlock()
+
+	if wal.file == nil || wal.ctx.Err() != nil {
+		return fmt.Errorf("WAL is closed, cannot write data")
+	}
 
 	wal.lastSeqNo++
 	walData := &wal_pb.WAL_DATA{
@@ -116,11 +142,7 @@ func (wal *WriteAheadLog) ReadAll() ([]*wal_pb.WAL_DATA, error) {
 			return nil, err
 		}
 		data := make([]byte, size)
-		fmt.Println(size)
 		_, err := walFile.Read(data)
-		// fmt.Println(n1)
-		// n, err := io.ReadFull(walFile, data)
-		// fmt.Println(n)
 		if err != nil {
 			return nil, err
 		}
@@ -128,10 +150,9 @@ func (wal *WriteAheadLog) ReadAll() ([]*wal_pb.WAL_DATA, error) {
 		if err := pb.Unmarshal(data, entry); err != nil {
 			return nil, err
 		}
-		if crc32.ChecksumIEEE(entry.GetData()) != entry.GetChecksum() {
+		if crc32.ChecksumIEEE(append(entry.GetData(), byte(entry.GetLogSeqNo()))) != entry.GetChecksum() {
 			return nil, fmt.Errorf("CRC mismatch for entry with seq no %d", entry.GetLogSeqNo())
 		}
-		fmt.Println(entry)
 		entries = append(entries, entry)
 	}
 	return entries, nil
@@ -179,5 +200,7 @@ func (wal *WriteAheadLog) Close() error {
 		return err
 	}
 	wal.resetTimer()
-	return wal.file.Close()
+	err := wal.file.Close()
+	wal.file = nil
+	return err
 }
