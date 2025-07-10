@@ -17,7 +17,7 @@ func DefaultConfig() *Options {
 		LogDir:         "./wal_data/",
 		MaxLogFileSize: 16 * 1024 * 1024, // 16MB
 		MaxSegmentSize: 64 * 1024,        // 64KB
-		EnableSync:     true,
+		EnableSync:     false,
 		SyncInterval:   5 * time.Second,
 	}
 }

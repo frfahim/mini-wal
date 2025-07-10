@@ -56,7 +56,7 @@ func (wal *WriteAheadLog) openExistingOrCreateSegment(dirPath string) error {
 // It creates a new segment file with the name "segment-<segmentID>"
 func (wal *WriteAheadLog) createNewSegment() error {
 	fileName := wal.logFileNamePrefix + strconv.Itoa(wal.currentSegmentNo)
-	file, err := os.OpenFile(fileName, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	file, err := os.OpenFile(fileName, os.O_CREATE|os.O_RDWR|os.O_APPEND, 0644)
 	if err != nil {
 		return err
 	}
@@ -79,7 +79,7 @@ func (wal *WriteAheadLog) openExistingSegment() error {
 	sort.Strings(logFiles)
 	lastFileName := logFiles[len(logFiles)-1]
 	// Open the last segment file for writing
-	file, err := os.OpenFile(lastFileName, os.O_WRONLY|os.O_APPEND, 0644)
+	file, err := os.OpenFile(lastFileName, os.O_RDWR|os.O_APPEND, 0644)
 	if err != nil {
 		return err
 	}
