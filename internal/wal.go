@@ -26,8 +26,8 @@ func initConfig(userConfig *Options) *Options {
 		if userConfig.MaxLogFileSize != 0 {
 			config.MaxLogFileSize = userConfig.MaxLogFileSize
 		}
-		if userConfig.MaxSegmentSize != 0 {
-			config.MaxSegmentSize = userConfig.MaxSegmentSize
+		if userConfig.maxSegments != 0 {
+			config.maxSegments = userConfig.maxSegments
 		}
 		if userConfig.SyncInterval != 0 {
 			config.SyncInterval = userConfig.SyncInterval
@@ -50,7 +50,7 @@ func Open(config *Options) (*WriteAheadLog, error) {
 		logFileNamePrefix: fileNamePrefix,
 		lastSeqNo:         0,
 		maxLogFileSize:    config.MaxLogFileSize,
-		maxSegmentSize:    config.MaxSegmentSize,
+		maxSegments:       config.maxSegments,
 		currentSegmentNo:  1,
 		syncDelay:         time.NewTicker(config.SyncInterval),
 		syncInterval:      config.SyncInterval,
@@ -86,6 +86,15 @@ func (wal *WriteAheadLog) writeEntry(data []byte, isCheckpoint bool) error {
 
 	if wal.file == nil || wal.ctx.Err() != nil {
 		return fmt.Errorf("WAL is closed, cannot write data")
+	}
+
+	if wal.checkRotateLog(data) {
+		if err := wal.Sync(); err != nil {
+			return fmt.Errorf("Couldn't rotate log, error in syncing %v", err)
+		}
+		if err := wal.rotateLog(); err != nil {
+			return err
+		}
 	}
 
 	wal.lastSeqNo++

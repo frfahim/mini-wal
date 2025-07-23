@@ -6,8 +6,8 @@ import (
 
 type Options struct {
 	LogDir         string
-	MaxLogFileSize uint32
-	MaxSegmentSize uint32
+	MaxLogFileSize int32
+	maxSegments    int
 	EnableSync     bool
 	SyncInterval   time.Duration
 }
@@ -16,7 +16,7 @@ func DefaultConfig() *Options {
 	return &Options{
 		LogDir:         "./wal_data/",
 		MaxLogFileSize: 16 * 1024 * 1024, // 16MB
-		MaxSegmentSize: 64 * 1024,        // 64KB
+		maxSegments:    5,
 		EnableSync:     false,
 		SyncInterval:   5 * time.Second,
 	}

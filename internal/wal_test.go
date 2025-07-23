@@ -188,3 +188,77 @@ func TestChecksumValidation(t *testing.T) {
 		}
 	}
 }
+
+func TestSegmentsRotation(t *testing.T) {
+	dir := tempWalDir(t)
+	wal, _ := Open(&Options{LogDir: dir + "/", MaxLogFileSize: 2 * 1024 * 1024, maxSegments: 13}) // 2 MB
+	defer wal.Close()
+
+	// Write enough data to force segment rotation
+	// For 100 loops total around 1000 * 25 KB = 25000 / 2 MB = ~13 segments
+	for i := 0; i < 1000; i++ {
+		largeData := bytes.Repeat([]byte("abcdefghijklmnopqrstuvwxyz"), 1000) // 26 byte * 1000 = 26000 / 1024 = ~25 KB
+		if err := wal.Write(largeData); err != nil {
+			t.Fatalf("Write failed: %v", err)
+		}
+	}
+
+	wal.Sync()
+
+	files, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("Failed to list segment files: %v", err)
+	}
+	if len(files) <= 1 {
+		t.Errorf("Expected multiple segment files, got %d", len(files))
+	}
+	if len(files) != 13 {
+		t.Errorf("Expected 13 segment files, got %d", len(files))
+	}
+}
+
+func TestOldestSegmentDeletion(t *testing.T) {
+	dir := tempWalDir(t)
+	maxSegments := 2
+	wal, _ := Open(&Options{LogDir: dir + "/", MaxLogFileSize: 50 * 1024, maxSegments: maxSegments}) // 50 KB
+	defer wal.Close()
+
+	// Write small entries to fill up the segments
+	for i := 0; i < 10; i++ {
+		data := bytes.Repeat([]byte(fmt.Sprintf("Entry-%d", i)), 100)
+		if err := wal.Write(data); err != nil {
+			t.Fatalf("Write failed: %v", err)
+		}
+	}
+
+	wal.Sync()
+
+	files, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("Failed to list segment files: %v", err)
+	}
+	// For small entries, we should have at most maxSegments files
+	if len(files) != 1 {
+		t.Errorf("Expected at most %d segment files, got %d", maxSegments, len(files))
+	}
+
+	// Write more data to trigger deletion of the oldest segment
+	for i := 0; i < 100; i++ {
+		data := bytes.Repeat([]byte(fmt.Sprintf("Entry-v2-%d", i)), 1000) // ~8 KB
+		if err := wal.Write(data); err != nil {
+			t.Fatalf("Write failed: %v", err)
+		}
+	}
+
+	wal.Sync()
+
+	files, err = os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("Failed to list segment files: %v", err)
+	}
+	// After writing more data, we should still have at most maxSegments files
+	// The oldest segment should be deleted
+	if len(files) != maxSegments {
+		t.Errorf("Expected exactly %d segment files, got %d", maxSegments, len(files))
+	}
+}

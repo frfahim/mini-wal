@@ -17,8 +17,8 @@ type WriteAheadLog struct {
 	locker            sync.Mutex         // Mutex to protect concurrent writes
 	syncInterval      time.Duration      // Interval for periodic sync
 	syncDelay         *time.Ticker       // Timer for periodic sync
-	maxLogFileSize    uint32             // maximum log file size
-	maxSegmentSize    uint32             // maximum segment size
+	maxLogFileSize    int32              // maximum log file size
+	maxSegments       int                // maximum segment size
 	ctx               context.Context    // context for cancellation
 	cancel            context.CancelFunc // function to cancel the context
 }

@@ -99,6 +99,59 @@ func (wal *WriteAheadLog) openExistingSegment() error {
 	return nil
 }
 
+// Check if the current segment file size exceeds the maximum log file size
+func (wal *WriteAheadLog) checkRotateLog(entry []byte) bool {
+	fileInfo, _ := wal.file.Stat()
+	curTotalSize := int32(fileInfo.Size()) + int32(wal.bufWriter.Size())
+	if curTotalSize+int32(len(entry)) > wal.maxLogFileSize {
+		return true
+	}
+	return false
+}
+
+// Rotate the log file if it exceeds the maximum log file size
+func (wal *WriteAheadLog) rotateLog() error {
+	if err := wal.file.Close(); err != nil {
+		return err
+	}
+	wal.currentSegmentNo++
+	if err := wal.checkAndDeleteOldSegment(); err != nil {
+		return err
+	}
+	if err := wal.createNewSegment(); err != nil {
+		return err
+	}
+	return nil
+}
+
+// Check and delete the oldest segment if the maximum number of segments is reached
+func (wal *WriteAheadLog) checkAndDeleteOldSegment() error {
+	if wal.currentSegmentNo <= wal.maxSegments {
+		return nil
+	}
+	oldestSegment, err := findOldestSegment(wal.logFileNamePrefix)
+	if err != nil {
+		return fmt.Errorf("Can't find oldest segment %v", err)
+	}
+	if err := os.Remove(oldestSegment); err != nil {
+		return fmt.Errorf("Can't remove the file %v", err)
+	}
+	return nil
+}
+
+// Find the oldest segment file based on the prefix
+func findOldestSegment(pathWithPrefix string) (string, error) {
+	logFiles, err := filepath.Glob(pathWithPrefix + "*")
+	if err != nil {
+		return "", fmt.Errorf("Failed to list files: %v", err)
+	}
+	if len(logFiles) == 0 {
+		return "", fmt.Errorf("No segments found with prefix: %s", pathWithPrefix)
+	}
+	sort.Strings(logFiles)
+	return logFiles[0], nil
+}
+
 func (wal *WriteAheadLog) getLastSeqNo() (uint64, error) {
 	// Get the last entry in the current segment
 	lastEntry, err := wal.getLastEntryInSegment()
