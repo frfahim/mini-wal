@@ -65,7 +65,7 @@ func TestWriteAndReadEntries(t *testing.T) {
 	}
 }
 
-func TestWriteWithCheckpoint(t *testing.T) {
+func TestReadWriteWithCheckpoint(t *testing.T) {
 	dir := tempWalDir(t)
 	wal, _ := Open(&Options{LogDir: dir + "/", SyncInterval: 10 * time.Millisecond})
 	defer wal.Close()
@@ -82,26 +82,21 @@ func TestWriteWithCheckpoint(t *testing.T) {
 	}
 
 	wal.Sync()
-	entries, err := wal.ReadAll()
+	entries, err := wal.ReadFromCheckPoint()
 	if err != nil {
 		t.Fatalf("ReadAll failed: %v", err)
 	}
 
-	if len(entries) != 2 {
-		t.Fatalf("Expected 2 entries, got %d", len(entries))
-	}
-
-	// First entry should not be a checkpoint
-	if entries[0].GetIsCheckpoint() {
-		t.Errorf("Entry 0 should not be a checkpoint")
+	if len(entries) != 1 {
+		t.Fatalf("Expected 1 entries, got %d", len(entries))
 	}
 
 	// Second entry should be a checkpoint
-	if !entries[1].GetIsCheckpoint() {
+	if !entries[0].GetIsCheckpoint() {
 		t.Errorf("Entry 1 should be a checkpoint")
 	}
 
-	if !bytes.Equal(entries[1].GetData(), checkpointData) {
+	if !bytes.Equal(entries[0].GetData(), checkpointData) {
 		t.Errorf("Checkpoint data mismatch: got %v, want %v", entries[1].GetData(), checkpointData)
 	}
 }

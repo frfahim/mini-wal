@@ -70,9 +70,17 @@ func Open(config *Options) (*WriteAheadLog, error) {
 	return wal, nil
 }
 
+func (wal *WriteAheadLog) Write(data []byte) error {
+	return wal.writeEntry(data, false)
+}
+
+func (wal *WriteAheadLog) WriteWithCheckpoint(data []byte) error {
+	return wal.writeEntry(data, true)
+}
+
 // Write data to the log file
 // Create WAL_DATA struct and marshal it to bytes
-func (wal *WriteAheadLog) Write(data []byte) error {
+func (wal *WriteAheadLog) writeEntry(data []byte, isCheckpoint bool) error {
 	wal.locker.Lock()
 	defer wal.locker.Unlock()
 
@@ -81,33 +89,25 @@ func (wal *WriteAheadLog) Write(data []byte) error {
 	}
 
 	wal.lastSeqNo++
-	walData := &wal_pb.WAL_DATA{
+	entry := &wal_pb.WAL_DATA{
 		LogSeqNo: wal.lastSeqNo,
 		Data:     data,
 		Checksum: crc32.ChecksumIEEE(append(data, byte(wal.lastSeqNo))),
 	}
-	return wal.WriteIntoBuffer(walData)
-}
 
-func (wal *WriteAheadLog) WriteWithCheckpoint(data []byte) error {
-	wal.locker.Lock()
-	defer wal.locker.Unlock()
-
-	wal.lastSeqNo++
-	isCheckpoint := true
-	walData := &wal_pb.WAL_DATA{
-		LogSeqNo:     wal.lastSeqNo,
-		Data:         data,
-		Checksum:     crc32.ChecksumIEEE(append(data, byte(wal.lastSeqNo))),
-		IsCheckpoint: &isCheckpoint,
+	if isCheckpoint {
+		if err := wal.Sync(); err != nil {
+			return fmt.Errorf("Couldn't create checkpoint, error in syncing %v", err)
+		}
+		entry.IsCheckpoint = &isCheckpoint
 	}
-	return wal.WriteIntoBuffer(walData)
+	return wal.WriteIntoBuffer(entry)
 }
 
 // WriteIntoBuffer writes the WAL_DATA into the buffer writer
 // It marshals the WAL_DATA to bytes, writes the size of the data first, then
-func (wal *WriteAheadLog) WriteIntoBuffer(walData *wal_pb.WAL_DATA) error {
-	bytesWalData, err := pb.Marshal(walData)
+func (wal *WriteAheadLog) WriteIntoBuffer(entry *wal_pb.WAL_DATA) error {
+	bytesWalData, err := pb.Marshal(entry)
 	if err != nil {
 		return err
 	}
@@ -125,6 +125,17 @@ func (wal *WriteAheadLog) WriteIntoBuffer(walData *wal_pb.WAL_DATA) error {
 }
 
 func (wal *WriteAheadLog) ReadAll() ([]*wal_pb.WAL_DATA, error) {
+	entries, error := wal.readAllEntries(false)
+	return entries, error
+}
+
+func (wal *WriteAheadLog) ReadFromCheckPoint() ([]*wal_pb.WAL_DATA, error) {
+	entries, error := wal.readAllEntries(true)
+	return entries, error
+}
+
+func (wal *WriteAheadLog) readAllEntries(fromCheckpoint bool) ([]*wal_pb.WAL_DATA, error) {
+	// checkpointLogSeqNo := uint64(0)
 	walFile, err := os.Open(wal.file.Name())
 	if err != nil {
 		return nil, err
@@ -152,6 +163,9 @@ func (wal *WriteAheadLog) ReadAll() ([]*wal_pb.WAL_DATA, error) {
 		}
 		if crc32.ChecksumIEEE(append(entry.GetData(), byte(entry.GetLogSeqNo()))) != entry.GetChecksum() {
 			return nil, fmt.Errorf("CRC mismatch for entry with seq no %d", entry.GetLogSeqNo())
+		}
+		if fromCheckpoint && entry.GetIsCheckpoint() {
+			entries = entries[:0]
 		}
 		entries = append(entries, entry)
 	}
