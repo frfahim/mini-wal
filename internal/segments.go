@@ -84,9 +84,8 @@ func (wal *WriteAheadLog) openExistingSegment() error {
 		return err
 	}
 	// Extract the segment ID from the file name
-	s := strings.Split(lastFileName, "-")
-	fmt.Println(s)
-	lastSegmentNo, err := strconv.Atoi(s[2])
+	s := strings.Split(lastFileName, segmentPrefix)
+	lastSegmentNo, err := strconv.Atoi(s[1])
 	if err != nil {
 		return err
 	}

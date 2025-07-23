@@ -15,7 +15,7 @@ import (
 	pb "google.golang.org/protobuf/proto"
 )
 
-func prepareConfig(userConfig *Options) *Options {
+func initConfig(userConfig *Options) *Options {
 	config := DefaultConfig()
 
 	// Override default values with user-provided values
@@ -43,7 +43,7 @@ func prepareConfig(userConfig *Options) *Options {
 // This method opens the WAL file for writing and returns a pointer to the WriteAheadLog struct
 func Open(config *Options) (*WriteAheadLog, error) {
 	// config is optional, it will get the default if not provided
-	config = prepareConfig(config)
+	config = initConfig(config)
 	fileNamePrefix := config.LogDir + segmentPrefix
 	ctx, cancel := context.WithCancel(context.Background())
 	wal := &WriteAheadLog{
